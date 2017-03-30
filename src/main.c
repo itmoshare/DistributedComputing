@@ -22,7 +22,7 @@ int main(int argc, char * const argv[])
 			return 1;
 	}
 	
-	
+	printf("%d \n",n);
 	
 	return 0;
 }
