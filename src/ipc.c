@@ -8,7 +8,6 @@
 int send(void * self, local_id dst, const Message * msg) 
 {
 	ProcInfo *proc_info = (ProcInfo*)self;
-	if (dst == proc_info->local_pid) return 0;
 	Pipe p = proc_info->pipes[proc_info->local_pid][dst];
 	size_t msg_size = sizeof(msg->s_header) + msg->s_header.s_payload_len;
 	if (write(p.writeEnd, msg, msg_size) < 0) return -1;
@@ -20,6 +19,8 @@ int send_multicast(void * self, const Message * msg)
 	ProcInfo *proc_info = (ProcInfo*)self;
 	for(local_id pid = 0; pid < proc_info->proc_ct; pid++)
 	{
+		if (pid == proc_info->local_pid)
+			continue;
 		if(send(self, pid, msg) < 0) return -1;
 	}
 	return 0;
@@ -28,7 +29,6 @@ int send_multicast(void * self, const Message * msg)
 int receive(void * self, local_id from, Message * msg) 
 {
 	ProcInfo *proc_info = (ProcInfo*)self;
-	if (from == proc_info->local_pid) return 0;
 	Pipe p = proc_info->pipes[from][proc_info->local_pid];
 	char buff[MAX_MESSAGE_LEN];
 	while (1)

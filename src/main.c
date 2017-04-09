@@ -49,6 +49,8 @@ int receive_all(ProcInfo *proc_info)
 	Message msg;
 	for(local_id i = 1; i < proc_info->proc_ct; i++)
 	{
+		if (proc_info->local_pid == i)
+			continue;
 		if (receive(proc_info, i, &msg) < 0) return -1;
 	}
 	return 0;
