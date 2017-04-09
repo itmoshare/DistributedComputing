@@ -8,7 +8,7 @@ typedef struct
 
 typedef struct 
 {
-	local_id pid;
+	local_id local_pid;
 	Pipe **pipes;
 	size_t proc_ct;
 } ProcInfo;
