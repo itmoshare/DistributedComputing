@@ -1,3 +1,5 @@
 *.swp
 *.bak
 build/*
+pipes.log
+events.log
