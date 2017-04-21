@@ -1,5 +1,5 @@
-CC=gcc
-CFLAGS=-std=c99 -Wall -pedantic -g -O0 -fsanitize=address
+CC=clang
+CFLAGS=-std=c99 -Wall -pedantic -g
 all:
 	mkdir -p build
 	$(CC) $(CFLAGS) $(wildcard src/*.c) -o build/lab
