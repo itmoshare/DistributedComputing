@@ -45,6 +45,25 @@ int receive(void * self, local_id from, Message * msg)
 
 int receive_any(void * self, Message * msg) 
 {
+	ProcInfo *proc_info = (ProcInfo*)self;
+	char buff[MAX_MESSAGE_LEN];
+	while (1)
+	{
+		for(local_id pid = 0; pid < proc_info->proc_ct; pid++)
+		{
+			if (pid == proc_info->local_pid) continue;
+
+			Pipe p = proc_info->pipes[pid][proc_info->local_pid];
+			if (p.readEnd == 0) return -1;
+			int rc = read(p.readEnd, buff, sizeof buff);
+			if (rc > 0) 
+			{
+				memcpy(msg, buff, rc);
+				return 0;
+			}
+		}
+		usleep(10000);
+	}
 	return 0;
 }
 
