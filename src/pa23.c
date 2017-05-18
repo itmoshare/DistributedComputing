@@ -77,10 +77,14 @@ void push_balance(BalanceHistory *history, TransferOrder *order)
 
 	history->s_history[current_time].s_balance_pending_in = 0;
 	history->s_history[current_time].s_time = current_time;
-	history->s_history[current_time].s_balance =
-		order->s_src == history->s_id ? prev - order->s_amount
-									  : prev + order->s_amount;
-
+	if (order->s_src == history->s_id)
+	{
+		history->s_history[current_time].s_balance = prev - order->s_amount;
+	} 
+	else
+	{
+		history->s_history[current_time].s_balance = prev + order->s_amount;
+	}
 	history->s_history_len = current_time + 1;
 }
 
@@ -137,7 +141,7 @@ int child_body(ProcInfo *proc_info)
 	{
 		int rc = receive_any(proc_info, &msg);
 		if (rc != 0) return 1;
-
+		
 		switch (msg.s_header.s_type)
 		{
 			case TRANSFER:
@@ -151,12 +155,10 @@ int child_body(ProcInfo *proc_info)
 
 					push_balance(history, &order);
 
-					// Send transfer message to dest
 					rc = send(proc_info, order.s_dst, &msg);
 				}
 				else
 				{
-					// Send ACK message
 					msg.s_header.s_type = ACK;
 					msg.s_header.s_local_time = get_physical_time();
 					msg.s_header.s_payload_len = 0;
