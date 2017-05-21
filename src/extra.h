@@ -1,5 +1,6 @@
 #ifndef _EXTRA
 #define _EXTRA
+#include "banking.h"
 
 typedef struct 
 {
@@ -11,6 +12,7 @@ typedef struct
 	local_id local_pid;
 	Pipe **pipes;
 	size_t proc_ct;
+	BalanceHistory *history;
 } ProcInfo;
 
 #endif
