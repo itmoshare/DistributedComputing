@@ -18,6 +18,24 @@
 #include "extra.h"
 
 static FILE *events_log_f = NULL;
+timestamp_t lamport_time = 0;
+
+timestamp_t get_lamport_time()
+{
+	return lamport_time;
+}
+
+void update_time(timestamp_t new_time)
+{
+	lamport_time = new_time > lamport_time 
+	? new_time 
+	: lamport_time;
+}
+
+void inc_time()
+{
+	lamport_time++;
+}
 
 int log_event(char *msg)
 {
@@ -48,6 +66,7 @@ void close_pipes(ProcInfo *proc_info)
 int receive_all(ProcInfo *proc_info)
 {
 	Message msg;
+	new_message(&msg, 0);
 	for(local_id i = 1; i < proc_info->proc_ct; i++)
 	{
 		if (proc_info->local_pid == i)
@@ -57,9 +76,9 @@ int receive_all(ProcInfo *proc_info)
 	return 0;
 }
 
-void push_balance(BalanceHistory *history, TransferOrder *order)
+void push_balance(BalanceHistory *history, TransferOrder *order, timestamp_t sent_time)
 {
-	timestamp_t current_time = get_physical_time();
+	timestamp_t current_time = get_lamport_time();
 	balance_t prev;
 	prev = history->s_history_len == 0
 			? 0 : history->s_history[history->s_history_len - 1].s_balance;
@@ -75,7 +94,11 @@ void push_balance(BalanceHistory *history, TransferOrder *order)
 		}
 	}
 
-	history->s_history[current_time].s_balance_pending_in = 0;
+	for (timestamp_t t = sent_time; t < current_time; t++) 
+	{
+		history->s_history[t].s_balance_pending_in = order->s_amount;
+	}
+
 	history->s_history[current_time].s_time = current_time;
 	if (order->s_src == history->s_id)
 	{
@@ -97,10 +120,9 @@ int parent_action(ProcInfo *proc_info)
 
 	// Robbery
 	bank_robbery(proc_info, proc_info->proc_ct - 1);
+	inc_time();
 	Message stop;
-	stop.s_header.s_magic = MESSAGE_MAGIC;
-	stop.s_header.s_type = STOP;
-	stop.s_header.s_local_time = get_physical_time();
+	new_message(&stop, STOP);
     int rc = send_multicast(proc_info, &stop);
     if( rc != 0 ) return rc;
 
@@ -111,9 +133,12 @@ int parent_action(ProcInfo *proc_info)
 	AllHistory all;
 	all.s_history_len = proc_info->proc_ct - 1;
 	Message msg;
+	new_message(&msg, 0);
 	for(local_id i = 1; i < proc_info->proc_ct; i++)
 	{
 		int rc = receive(proc_info, i, &msg);
+		update_time(msg.s_header.s_local_time);
+		inc_time();
 		if( rc != 0 ) return 1;
 		memcpy(&all.s_history[i - 1], msg.s_payload, msg.s_header.s_payload_len);
 	}
@@ -133,41 +158,42 @@ int child_body(ProcInfo *proc_info)
 	char buff[MAX_PAYLOAD_LEN];
 
 	Message msg;
+	new_message(&msg, 0);
 	TransferOrder order;
-	memset(&msg, 0, sizeof msg);
 	memset(&order, 0, sizeof order);
 
 	while (1)
 	{
 		int rc = receive_any(proc_info, &msg);
 		if (rc != 0) return 1;
-		
+		update_time(msg.s_header.s_local_time);
+		inc_time();
+
 		switch (msg.s_header.s_type)
 		{
 			case TRANSFER:
 				memcpy(&order, msg.s_payload, msg.s_header.s_payload_len);
+				inc_time();
 				if (order.s_src == proc_info->local_pid) 
 				{
+					msg.s_header.s_local_time = get_lamport_time();
 					snprintf(buff, MAX_PAYLOAD_LEN, log_transfer_out_fmt,
-							 get_physical_time(), proc_info->local_pid,
+							 get_lamport_time(), proc_info->local_pid,
 							 order.s_amount, order.s_dst);
 					log_event(buff);
 
-					push_balance(history, &order);
+					push_balance(history, &order, msg.s_header.s_local_time);
 
 					rc = send(proc_info, order.s_dst, &msg);
 				}
 				else
 				{
-					msg.s_header.s_type = ACK;
-					msg.s_header.s_local_time = get_physical_time();
-					msg.s_header.s_payload_len = 0;
+					push_balance(history, &order, msg.s_header.s_local_time);
+					new_message(&msg, ACK);
 					snprintf(buff, MAX_PAYLOAD_LEN, log_transfer_in_fmt,
-							 get_physical_time(), proc_info->local_pid,
+							 get_lamport_time(), proc_info->local_pid,
 							 order.s_amount, order.s_src);
 					log_event(buff);
-
-					push_balance(history, &order);
 
 					rc = send(proc_info, 0, &msg);
 				}
@@ -178,7 +204,7 @@ int child_body(ProcInfo *proc_info)
 				order.s_src = 0;
 				order.s_dst = proc_info->local_pid;
 				order.s_amount = 0;
-				push_balance(history, &order);
+				push_balance(history, &order, get_lamport_time());
 				return 0;
 			break;
 		}
@@ -191,15 +217,14 @@ int child_action(ProcInfo *proc_info, int sys_pid, int parentPid)
 {
 	close_pipes(proc_info);
 	char log_buff[MAX_PAYLOAD_LEN];
-	
+
+	inc_time();	
 	Message msg;
-	memset(&msg, 0, sizeof msg);
-	msg.s_header.s_magic = MESSAGE_MAGIC;
-	snprintf(msg.s_payload, MAX_PAYLOAD_LEN, log_started_fmt, get_physical_time(),
+	new_message(&msg, STARTED);
+	snprintf(msg.s_payload, MAX_PAYLOAD_LEN, log_started_fmt, get_lamport_time(),
 			 proc_info->local_pid, sys_pid, parentPid, 
-			 proc_info->history->s_history[get_physical_time()].s_balance);
+			 proc_info->history->s_history[get_lamport_time()].s_balance);
 	msg.s_header.s_payload_len = strlen(msg.s_payload);
-	msg.s_header.s_type = STARTED;
 
 	if (log_event(msg.s_payload) < 0) return -1;
 	
@@ -207,17 +232,20 @@ int child_action(ProcInfo *proc_info, int sys_pid, int parentPid)
 	
 	if (receive_all(proc_info) < 0) return -1;
 
-	snprintf(log_buff, MAX_PAYLOAD_LEN, log_received_all_started_fmt, get_physical_time(),
+	snprintf(log_buff, MAX_PAYLOAD_LEN, log_received_all_started_fmt, get_lamport_time(),
 			 proc_info->local_pid);
 
 	if (log_event(log_buff) < 0) return -1;
 
 	child_body(proc_info);
 
+
 	snprintf(msg.s_payload, MAX_PAYLOAD_LEN,
-			 log_done_fmt, get_physical_time(), 
+			 log_done_fmt, get_lamport_time(), 
 			 proc_info->local_pid,
-			 proc_info->history->s_history[get_physical_time()].s_balance);
+			 proc_info->history->s_history[get_lamport_time()].s_balance);
+	inc_time();
+	msg.s_header.s_local_time = get_lamport_time();
 	msg.s_header.s_payload_len = strlen(msg.s_payload);
 	msg.s_header.s_type = DONE;
 
@@ -227,14 +255,20 @@ int child_action(ProcInfo *proc_info, int sys_pid, int parentPid)
 
 	if (receive_all(proc_info) < 0) return -1;
 
-	snprintf(log_buff, MAX_PAYLOAD_LEN, log_received_all_done_fmt, get_physical_time(),
+	snprintf(log_buff, MAX_PAYLOAD_LEN, log_received_all_done_fmt, get_lamport_time(),
 			 proc_info->local_pid);
 	if (log_event(log_buff) < 0) return -1;
 
 	// Send history
 	BalanceHistory *history = proc_info->history;
-	msg.s_header.s_type = BALANCE_HISTORY;
-	msg.s_header.s_local_time = get_physical_time();
+	inc_time();
+	TransferOrder order;
+	order.s_src = 0;
+	order.s_dst = proc_info->local_pid;
+	order.s_amount = 0;
+	push_balance(history, &order, get_lamport_time());
+
+	new_message(&msg, BALANCE_HISTORY);
 	msg.s_header.s_payload_len =
 		sizeof *history - (MAX_T + 1 - history->s_history_len) * sizeof *history->s_history;
 
@@ -246,11 +280,9 @@ int child_action(ProcInfo *proc_info, int sys_pid, int parentPid)
 void transfer(void * parent_data, local_id src, local_id dst,
               balance_t amount) 
 {
+	inc_time();
     Message msg;
-    memset(&msg, 0, sizeof msg);
-    msg.s_header.s_magic = MESSAGE_MAGIC;
-    msg.s_header.s_type = TRANSFER;
-    msg.s_header.s_local_time = get_physical_time();
+    new_message(&msg, TRANSFER);
 
     TransferOrder order;
     order.s_src = src;

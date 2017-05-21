@@ -15,4 +15,11 @@ typedef struct
 	BalanceHistory *history;
 } ProcInfo;
 
+static void new_message(Message *msg, MessageType type)
+{
+	memset(msg, 0, sizeof(Message));
+	msg->s_header.s_magic = MESSAGE_MAGIC;
+	msg->s_header.s_type = type;
+	msg->s_header.s_local_time = get_lamport_time();
+}
 #endif
