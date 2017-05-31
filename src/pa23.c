@@ -37,6 +37,14 @@ void inc_time()
 	lamport_time++;
 }
 
+void new_message(Message *msg, MessageType type)
+{
+	memset(msg, 0, sizeof(Message));
+	msg->s_header.s_magic = MESSAGE_MAGIC;
+	msg->s_header.s_type = type;
+	msg->s_header.s_local_time = get_lamport_time();
+}
+
 int log_event(char *msg)
 {
 	fprintf(events_log_f, "%s", msg);
@@ -72,6 +80,8 @@ int receive_all(ProcInfo *proc_info)
 		if (proc_info->local_pid == i)
 			continue;
 		if (receive(proc_info, i, &msg) < 0) return -1;
+		update_time(msg.s_header.s_local_time);
+		inc_time();
 	}
 	return 0;
 }
@@ -359,7 +369,7 @@ int main(int argc, char * const argv[])
 		{
 			if (i == j) continue;
 			
-			int rc = pipe2((int*)&proc_info.pipes[i][j], O_NONBLOCK | O_DIRECT);
+			int rc = pipe2((int*)&proc_info.pipes[i][j], O_NONBLOCK);
 			
 			if (rc < 0) return 1;
 			fprintf(pipes_log_f, "open pipe(%d, %d)\n", i, j);
