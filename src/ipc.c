@@ -59,7 +59,11 @@ int receive_any(void * self, Message * msg)
 			if (rc > 0)
 			{
 				rc = read(p.readEnd, msg->s_payload, msg->s_header.s_payload_len);
-				if (rc >= 0) return 0;
+				if (rc >= 0)
+				{
+					proc_info->prev = pid;
+					return 0;
+				}
 			}
 		}
 		usleep(TIMEOUT);
