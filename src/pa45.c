@@ -20,7 +20,6 @@
 
 static FILE *events_log_f = NULL;
 timestamp_t lamport_time = 0;
-queue_t *g_queue = NULL;
 
 timestamp_t get_lamport_time()
 {
@@ -59,36 +58,33 @@ int request_cs(const void * self)
 	Message msg;
 	inc_time();
 	new_message(&msg, CS_REQUEST);
-	if (g_queue == NULL)
-	{
-		q_init(&g_queue);
-	}
 
-	enq(g_queue, proc_info->local_pid, get_lamport_time());
-	int rc = send_multicast(proc_info, &msg);
-	if (rc != 0) return rc;
+	enq(proc_info->local_pid, get_lamport_time());
+	if (send_multicast(proc_info, &msg) < 0) return -1;
 
-	int replies_ct = proc_info->proc_ct - 2;
+	local_id last_pid = 0;
+	int replies_ct = proc_info->child_ct;
 	while (replies_ct > 0 || g_queue->head->pid != proc_info->local_pid)
 	{
-		rc = receive_any(proc_info, &msg);
-		if (rc != 0) return rc;
+		if ((last_pid = receive_any(proc_info, &msg)) < 0) return -1;
 		update_time(msg.s_header.s_local_time);
 		inc_time();
 		switch(msg.s_header.s_type)
 		{
+			case DONE:
+				proc_info->child_ct--;
+				break;
 			case CS_REQUEST:
-				enq(g_queue, proc_info->prev, msg.s_header.s_local_time);
+				enq(last_pid, msg.s_header.s_local_time);
 				inc_time();
 				new_message(&msg, CS_REPLY);
-				int rc = send(proc_info, proc_info->prev, &msg);
-				if (rc != 0) return rc;
+				if (send(proc_info, last_pid, &msg) < 0) return -1;
 				break;
 			case CS_REPLY:
 				replies_ct--;
 				break;
 			case CS_RELEASE:
-				deq(g_queue);
+				deq();
 				break;
 		}
 	}
@@ -100,14 +96,12 @@ int release_cs(const void * self)
 {
 	ProcInfo *proc_info = (ProcInfo*)self;
 
-	deq(g_queue);
+	deq();
 	Message msg;
 	inc_time();
 	new_message(&msg, CS_RELEASE);
 
-	int rc = send_multicast(proc_info, &msg);
-	if (rc != 0) return rc;
-
+	if (send_multicast(proc_info, &msg) < 0) return -1;
 	return 0;
 }
 
@@ -146,6 +140,21 @@ int receive_all(ProcInfo *proc_info)
 	return 0;
 }
 
+int receive_all_left(ProcInfo *proc_info)
+{
+	Message msg;
+	new_message(&msg, 0);
+	while (proc_info->child_ct > 0)
+	{
+		if (receive_any(proc_info, &msg) < 0) return -1;
+		update_time(msg.s_header.s_local_time);
+		inc_time();
+		if (msg.s_header.s_type == DONE) 
+			proc_info->child_ct--;
+	}
+	return 0;
+}
+
 int parent_action(ProcInfo *proc_info)
 {
 	close_pipes(proc_info);
@@ -154,7 +163,7 @@ int parent_action(ProcInfo *proc_info)
 	if (receive_all(proc_info) < 0) return -1;
 
 	// Get done messages
-	if (receive_all(proc_info) < 0) return -1;
+	if (receive_all_left(proc_info) < 0) return -1;
 
 	for(local_id pid = 1; pid < proc_info->proc_ct; pid++)
 	{
@@ -170,10 +179,10 @@ int child_body(ProcInfo *proc_info)
 
 	char buff[1024];
 
-	int n = proc_info->proc_ct * 5;
+	int n = proc_info->local_pid * 5;
 	for (int i = 1; i <= n; i++) 
 	{
-		snprintf(buff, sizeof(buff), log_loop_operation_fmt, proc_info->proc_ct, i, n);
+		snprintf(buff, sizeof(buff), log_loop_operation_fmt, proc_info->local_pid, i, n);
 		print(buff);
 	}
 
@@ -222,7 +231,7 @@ int child_action(ProcInfo *proc_info, int sys_pid, int parentPid)
 
 	if (send_multicast(proc_info, &msg) < 0) return -1;
 
-	if (receive_all(proc_info) < 0) return -1;
+	if (receive_all_left(proc_info) < 0) return -1;
 
 	snprintf(log_buff, MAX_PAYLOAD_LEN, log_received_all_done_fmt, get_lamport_time(),
 			 proc_info->local_pid);
@@ -271,6 +280,7 @@ int main(int argc, char * const argv[])
 	ProcInfo proc_info;
 	memset(&proc_info, 0, sizeof(proc_info));
 	proc_info.proc_ct = n;
+	proc_info.child_ct = n - 1;
 	proc_info.mutexl = mutexl;
 	
 	proc_info.pipes = malloc(n * sizeof(proc_info.pipes));
@@ -313,6 +323,7 @@ int main(int argc, char * const argv[])
 		{
 			cur_sys_pid = getpid();
 			proc_info.local_pid = pid;
+			proc_info.child_ct--;
 			break;
 		}
 	}

@@ -61,8 +61,7 @@ int receive_any(void * self, Message * msg)
 				rc = read(p.readEnd, msg->s_payload, msg->s_header.s_payload_len);
 				if (rc >= 0)
 				{
-					proc_info->prev = pid;
-					return 0;
+					return pid;
 				}
 			}
 		}

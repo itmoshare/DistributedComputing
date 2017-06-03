@@ -9,14 +9,15 @@ typedef struct queue_t {
 	timestamp_t time;
 } queue_t;
 
-void q_init (queue_t **queue)
-{
-	*queue = malloc(sizeof(queue_t));
-	memset(*queue, 0, sizeof(queue_t));
-}
+queue_t *g_queue = NULL;
 
-void enq (queue_t *queue, local_id pid, timestamp_t time)
+void enq (local_id pid, timestamp_t time)
 {
+	if( g_queue == NULL ){
+		g_queue = malloc(sizeof(queue_t));
+		memset(g_queue, 0, sizeof(queue_t));
+		
+	}
 	queue_t *node;
 	
 	node = malloc(sizeof(queue_t));
@@ -26,14 +27,14 @@ void enq (queue_t *queue, local_id pid, timestamp_t time)
 	node->time = time;
 	node->next = NULL;
 
-	if (queue->head == NULL && queue->tail == NULL)
+	if (g_queue->head == NULL && g_queue->tail == NULL)
 	{
-		queue->head = node;
-		queue->tail = node;
+		g_queue->head = node;
+		g_queue->tail = node;
 		return;
 	}
 
-	queue_t *cur = queue->head;
+	queue_t *cur = g_queue->head;
 	queue_t *prev = NULL;
 
 	while (cur != NULL) 
@@ -42,43 +43,42 @@ void enq (queue_t *queue, local_id pid, timestamp_t time)
 			cur->time > time)
 		{
 			node->next = cur;
-			if (prev) prev->next = node;
+			if (prev != NULL) prev->next = node;
+			if (cur == g_queue->head) g_queue->head = node;
 
-			if (cur == queue->head) queue->head = node;
-
-			node = NULL;
 			break;
 		} 
 		prev = cur;
 		cur = cur->next;
-	}
 
-	if (node != NULL) 
-	{
-		queue->tail->next = node;
-		queue->tail = node;
-		node = NULL;
+		if (cur == NULL) 
+		{
+			g_queue->tail->next = node;
+			g_queue->tail = node;
+		}
 	}
 }
-void deq (queue_t *queue)
+void deq ()
 {
-	if (queue->head == NULL) return;
-	queue_t *del = queue->head;
-	queue->head = queue->head == queue->tail ? queue->tail = NULL : queue->head->next;
+	if (g_queue == NULL) return;
+	if (g_queue->head == NULL) return;
+	queue_t *del = g_queue->head;
+	g_queue->head = g_queue->head == g_queue->tail ? g_queue->tail = NULL : g_queue->head->next;
 	free(del);
 }
 
-void clear (queue_t *queue)
+void clear ()
 {
-	queue_t *node = queue->head;
+	if (g_queue == NULL) return;
+	queue_t *node = g_queue->head;
 	while (node != NULL) 
 	{
 		queue_t *next = node->next;
 		free(node);
 		node = next;
 	}
-	queue->head = queue->tail = NULL;
-	free(queue);
+	g_queue->head = g_queue->tail = NULL;
+	free(g_queue);
 }
 
 #endif

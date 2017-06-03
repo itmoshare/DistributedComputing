@@ -11,8 +11,8 @@ typedef struct
 	local_id local_pid;
 	Pipe **pipes;
 	size_t proc_ct;
+	size_t child_ct;
 	int mutexl;
-	local_id prev;
 } ProcInfo;
 
 void new_message(Message *msg, MessageType type);
