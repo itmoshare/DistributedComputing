@@ -6,12 +6,11 @@
 typedef struct queue_t {
 	struct queue_t *head, *tail, *next;
 	local_id pid;
-	timestamp_t time;
 } queue_t;
 
 queue_t *g_queue = NULL;
 
-void enq (local_id pid, timestamp_t time)
+void enq (local_id pid)
 {
 	if( g_queue == NULL ){
 		g_queue = malloc(sizeof(queue_t));
@@ -24,7 +23,6 @@ void enq (local_id pid, timestamp_t time)
 	memset(node, 0, sizeof(queue_t));
 
 	node->pid = pid;
-	node->time = time;
 	node->next = NULL;
 
 	if (g_queue->head == NULL && g_queue->tail == NULL)
@@ -39,8 +37,7 @@ void enq (local_id pid, timestamp_t time)
 
 	while (cur != NULL) 
 	{
-		if ((cur->time == time && pid < cur->pid) ||
-			cur->time > time)
+		if (pid < cur->pid)
 		{
 			node->next = cur;
 			if (prev != NULL) prev->next = node;
@@ -58,6 +55,7 @@ void enq (local_id pid, timestamp_t time)
 		}
 	}
 }
+
 void deq ()
 {
 	if (g_queue == NULL) return;

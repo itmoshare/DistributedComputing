@@ -20,6 +20,7 @@
 
 static FILE *events_log_f = NULL;
 timestamp_t lamport_time = 0;
+timestamp_t last_req_time = -1;
 
 timestamp_t get_lamport_time()
 {
@@ -59,12 +60,12 @@ int request_cs(const void * self)
 	inc_time();
 	new_message(&msg, CS_REQUEST);
 
-	enq(proc_info->local_pid, get_lamport_time());
 	if (send_multicast(proc_info, &msg) < 0) return -1;
+	last_req_time = get_lamport_time();
 
-	local_id last_pid = 0;
+	int last_pid = 0;
 	int replies_ct = proc_info->child_ct;
-	while (replies_ct > 0 || g_queue->head->pid != proc_info->local_pid)
+	while (replies_ct > 0)
 	{
 		if ((last_pid = receive_any(proc_info, &msg)) < 0) return -1;
 		update_time(msg.s_header.s_local_time);
@@ -75,16 +76,22 @@ int request_cs(const void * self)
 				proc_info->child_ct--;
 				break;
 			case CS_REQUEST:
-				enq(last_pid, msg.s_header.s_local_time);
-				inc_time();
-				new_message(&msg, CS_REPLY);
-				if (send(proc_info, last_pid, &msg) < 0) return -1;
+				if (last_req_time == -1 ||
+					msg.s_header.s_local_time < last_req_time || 
+					(msg.s_header.s_local_time == last_req_time && last_pid < proc_info->local_pid))
+				{
+					inc_time();
+					new_message(&msg, CS_REPLY);
+					if (send(proc_info, last_pid, &msg) < 0) return -1;
+				}
+				else
+				{
+					enq(last_pid);
+				}
+				
 				break;
 			case CS_REPLY:
 				replies_ct--;
-				break;
-			case CS_RELEASE:
-				deq();
 				break;
 		}
 	}
@@ -96,12 +103,18 @@ int release_cs(const void * self)
 {
 	ProcInfo *proc_info = (ProcInfo*)self;
 
-	deq();
 	Message msg;
 	inc_time();
-	new_message(&msg, CS_RELEASE);
+	new_message(&msg, CS_REPLY);
+	while (g_queue != NULL && g_queue->head != NULL)
+	{
+		inc_time();
+		msg.s_header.s_local_time = get_lamport_time();
+		int pid = g_queue->head->pid;
+		deq();
 
-	if (send_multicast(proc_info, &msg) < 0) return -1;
+		if (send(proc_info, pid, &msg) != 0) return -1;
+	}
 	return 0;
 }
 
